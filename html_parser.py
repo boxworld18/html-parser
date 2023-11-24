@@ -1,11 +1,9 @@
-from lxml import html, etree
-import emoji
+from lxml import html
 import time, copy, random
-import json, re, os, secrets, math
+import json, re, os
 
 from identifier import IdentifierTool
 from prompt import HtmlPrompt
-from utils import print_html_object
 
 class HtmlParser():
     def __init__(self, ctx: str, args: dict[str]={}) -> None:
@@ -31,12 +29,9 @@ class HtmlParser():
             return True
         
         args = {} if args is None else args
-        
-        # [Configs]
-        parent_chain = args.get('parent_chain', False)
-        use_position = args.get('use_position', False)
-        
+
         # [Position] use_pos: False -> use full page, otherwise use window_size
+        use_position = args.get('use_position', False)
         window_size = args.get('window_size', None)
         rect = args.get('rect_dict', None)
         if use_position:
@@ -64,6 +59,7 @@ class HtmlParser():
             keep_attrs = []
         
         # [Tags] for clickable elem, keep: must keep, obs: keep if follow specific rule
+        parent_chain = args.get('parent_chain', False)
         keep_elem = args.get('keep_elem', [])
         obs_elem = args.get('obs_elem', [])
         
@@ -269,6 +265,7 @@ class HtmlParser():
 
 if __name__ == '__main__':
     from configs import mind2web_keep_attrs, basic_attrs
+    from utils import print_html_object
     
     with open('/Users/boxworld/Desktop/Work/TreeTool/testcase/mytest.html', 'r') as f:
         src = f.read()
