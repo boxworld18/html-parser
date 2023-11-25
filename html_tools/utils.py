@@ -1,11 +1,7 @@
-def print_html_object(obj):
+def print_html_object(obj: str='') -> str:
     tab_cnt = 0
-    result = ''
-    
-    content = ''
-    sep = ''
-    last_is_left = False
-    last_is_right = False
+    result, content, sep = '', '', ''
+    last_is_left, last_is_right = False, False
     for ch in obj:
         if ch == '<':
             result += '\n'

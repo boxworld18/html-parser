@@ -1,10 +1,11 @@
-from configs import prompts
+from .configs import prompts
 
 class HtmlPrompt:    
-    def __init__(self, prompt='') -> None:
+    def __init__(self, prompt: str='') -> None:
         prompt = self.extract(prompt, 'xml')
         if prompt not in prompts:
             raise Exception('Unknown prompt: ' + prompt)
+        self.name = prompt
         self.prompt = prompts[prompt]
 
     @staticmethod

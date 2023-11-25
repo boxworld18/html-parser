@@ -11,6 +11,7 @@ class IdentifierTool:
             method = 'order'
             
         self.func = self.methods.get(method, None)
+        self.name = method
         if self.func is None:
             raise ValueError(f'Invalid method for identifier: {method}')
         

@@ -2,8 +2,9 @@ from lxml import html
 import time, copy, random
 import json, re, os
 
-from identifier import IdentifierTool
-from prompt import HtmlPrompt
+from .identifier import IdentifierTool
+from .prompt import HtmlPrompt
+from .configs import config_meta
 
 class HtmlParser():
     def __init__(self, ctx: str, args: dict[str]={}) -> None:
@@ -24,7 +25,7 @@ class HtmlParser():
             attr_type = type(attr)
             if attr_type != type(type_model):
                 return False
-            if attr_type in ['str'] and len(attr) == 0:
+            if attr_type == type('str') and len(attr) == 0:
                 return False
             return True
         
@@ -40,6 +41,9 @@ class HtmlParser():
             if not attr_check(rect, {}):
                 raise ValueError('rect_dict must be set when use_position is True')
         
+        if not attr_check(rect, {}):
+            rect = {}
+        
         # [Label] for vimium is temp_clickable_label, otherwise keep all of it
         label_attr = args.get('label_attr', '')
         label_method = args.get('label_generator', None)
@@ -48,7 +52,7 @@ class HtmlParser():
         
         # [id] for mind2web is backend_node_id, for normal website use our method
         id_attr = args.get('id_attr', '')
-        regen_id = attr_check(id_attr)
+        regen_id = not attr_check(id_attr)
         
         if regen_id:
             id_attr = 'temp_id'
@@ -73,8 +77,8 @@ class HtmlParser():
         # traverse and get special data
         if regen_id or regen_label:
             self.mark_id()
-            
-    def set_args(self, use_position: bool=False, window_size: tuple=(), rect_dict: dict[str]=None, label_attr: str='', 
+          
+    def set_args(self, use_position: bool=False, window_size: tuple=(), rect_dict: dict[str]={}, label_attr: str='', 
                  id_attr: str='', keep_attrs: list[str]=[], keep_elem: list[str]=[], obs_elem: list[str]=[], 
                  parent_chain: bool=False) -> None:
         
@@ -87,6 +91,23 @@ class HtmlParser():
         self.keep = keep_elem
         self.obs = obs_elem
         self.parent_chain = parent_chain
+        
+    def get_config(self):
+        config = {
+            'id_attr': self.id_attr,
+            'keep_attrs': self.keep_attrs[:5],
+            'label_attr': self.label_attr,
+            'use_position': self.use_position,
+            'window_size': self.window_size,
+            'rect': dict(list(self.rect.items())[:3]),
+            'keep_elem': self.keep[:5],
+            'obs_elem': self.obs[:5],
+            'parent_chain': self.parent_chain,
+            'prompt_name': self.prompt.name,
+            'identifier_name': self.identifier.name
+        }
+        
+        return config, config_meta.format(**config)
         
     @staticmethod
     def ctx2tree(ctx: str) -> html.HtmlElement:
@@ -170,9 +191,9 @@ class HtmlParser():
         def check_attr(attr: str, node: html.HtmlElement) -> bool:
             tag = node.tag
             if (
-                ( attr == 'role' and node.attrib.get(attr, '') in ['presentation', 'none', 'link'] ) or
-                ( attr == 'type' and node.attrib.get(attr, '') == 'hidden' ) or
-                ( attr == 'value' and tag in ['option'] )
+                ( attr == 'role' and node.attrib.get(attr, '') in ['presentation', 'none', 'link'] )
+                or ( attr == 'type' and node.attrib.get(attr, '') == 'hidden' )
+                or ( attr == 'value' and tag in ['option'] )
                 ):
                 return False
             return True
@@ -262,56 +283,99 @@ class HtmlParser():
 
         return obj
 
+    # From mind2web, https://github.com/OSU-NLP-Group/Mind2Web/blob/main/src/data_utils/dom_utils.py
+    def prune_tree(self, dfs_count: int=1, max_depth: int=4, max_children: int=20, max_sibling: int=6) -> None:
+        def get_anscendants(node: html.HtmlElement, max_depth: int, current_depth: int=0) -> list[str]:
+            if current_depth > max_depth:
+                return []
 
-if __name__ == '__main__':
-    from configs import mind2web_keep_attrs, basic_attrs
-    from utils import print_html_object
-    
-    with open('/Users/boxworld/Desktop/Work/TreeTool/testcase/mytest.html', 'r') as f:
-        src = f.read()
-    
-    # For normal use
-    args = {
-        'use_position': True,
-        'window_size': (0, 100, 200, 100),
-        'rect_dict': {
-            '0': (0, 0, 100, 100),
-            '3': (101, 50, 100, 100),
-        },
-        'label_attr': 'temp_clickable_label',
-        'label_generator': 'order',
-        'attr_list': basic_attrs,
-        'keep_elem': [],
-        'parent_chain': True,
-    }
-    
-    # For mind2web
-    # args = {
-    #     'use_position': False,
-    #     'id_attr': 'backend_node_id',
-    #     'label_attr': 'temp_clickable_label',
-    #     'label_generator': 'order',
-    #     'attr_list': mind2web_keep_attrs,
-    #     'keep_elem': ['13257', '13272'],
-    # }
-    
-    # For vimium
-    # args = {
-    #     'use_position': False,
-    #     'label_attr': 'temp_clickable_label',
-    #     'label_generator': 'order',
-    #     'id_attr': 'backend_node_id',
-    #     'label_attr': 'temp_clickable_label',
-    #     'attr_list': HtmlParser.mind2web_keep_attrs,
-    # }
-    
-    tt = HtmlParser(src, args)
-    res = tt.parse_tree()
-    cleaned = res.get('html', '')
-    
-    it, pt = res.get('init_time', 0), res.get('parse_time', 0)
-    print(f'[Time] {it:.3f} {pt:.3f}')
-    
-    print(cleaned)
-    # with open('output/1.html', 'w') as f:
-    #     f.write(print_html_object(cleaned))
+            anscendants = []
+            parent = node.getparent()
+            if parent is not None:
+                anscendants.append(parent)
+                anscendants.extend(get_anscendants(parent, max_depth, current_depth + 1))
+
+            return anscendants
+        
+        def get_descendants(node: html.HtmlElement, max_depth: int, current_depth: int=0) -> list[str]:
+            if current_depth > max_depth:
+                return []
+
+            descendants = []
+            for child in node:
+                descendants.append(child)
+                descendants.extend(get_descendants(child, max_depth, current_depth + 1))
+
+            return descendants
+        
+        def get_keep_elements(tree: html.HtmlElement, keep: list[str], dfs_count: int=1) -> list[str]:
+            to_keep = set(copy.deepcopy(keep))
+            nodes_to_keep = set()
+            
+            for _ in range(max(1, dfs_count)):
+                for bid in to_keep:
+                    candidate_node = tree.xpath(f'//*[@{self.id_attr}="{bid}"]')
+                    if len(candidate_node) == 0:
+                        continue
+                    
+                    candidate_node = candidate_node[0]
+                    nodes_to_keep.add(candidate_node.attrib[self.id_attr])
+                    # get all ancestors or with max depth
+                    nodes_to_keep.update([x.attrib.get(self.id_attr, '') for x in get_anscendants(candidate_node, max_depth)])
+                    
+                    # get descendants with max depth
+                    nodes_to_keep.update([x.attrib.get(self.id_attr, '') for x in get_descendants(candidate_node, max_depth)][:max_children])
+                    # get siblings within range
+                    parent = candidate_node.getparent()
+                    if parent is None:
+                        continue
+                    
+                    siblings = [x for x in parent.getchildren() if x.tag != 'text']
+                    if candidate_node not in siblings:
+                        continue
+                    
+                    idx_in_sibling = siblings.index(candidate_node)
+                    nodes_to_keep.update([x.attrib.get(self.id_attr, '') 
+                                        for x in siblings[max(0, idx_in_sibling - max_sibling) : idx_in_sibling + max_sibling + 1]])
+                    
+                to_keep = copy.deepcopy(nodes_to_keep)
+                
+            for bid in keep:
+                candidate_node = tree.xpath(f'//*[@{self.id_attr}="{bid}"]')
+                if len(candidate_node) == 0:
+                    continue
+                candidate_node = candidate_node[0]
+                nodes_to_keep.update([x.attrib.get(self.id_attr, '') for x in candidate_node.xpath('ancestor::*')])
+
+            return list(nodes_to_keep)
+
+        # clone the tree
+        new_tree = copy.deepcopy(self.dom_tree)
+        nodes_to_keep = get_keep_elements(new_tree, self.keep, dfs_count)
+        
+        # remove nodes not in nodes_to_keep
+        for node in new_tree.xpath('//*')[::-1]:
+            if node.tag != 'text':
+                is_keep = node.attrib.get(self.id_attr, '') in nodes_to_keep
+                is_candidate = node.attrib.get(self.id_attr, '') in self.keep
+            else:
+                is_keep = (node.getparent().attrib.get(self.id_attr, '') in nodes_to_keep)
+                is_candidate = (node.getparent().attrib.get(self.id_attr, '') in self.keep)
+            if not is_keep and node.getparent() is not None:
+                node.getparent().remove(node)
+            else:
+                if not is_candidate or node.tag == 'text':
+                    node.attrib.pop(self.id_attr, None)
+                if (
+                    len(node.attrib) == 0
+                    and not any([x.tag == 'text' for x in node.getchildren()])
+                    and node.getparent() is not None
+                    and node.tag != "text"
+                    and len(node.getchildren()) <= 1
+                ):
+                    # insert all children into parent
+                    for child in node.getchildren():
+                        node.addprevious(child)
+                    node.getparent().remove(node)
+        
+        self.dom_tree = new_tree
