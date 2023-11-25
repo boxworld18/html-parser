@@ -13,6 +13,7 @@ class HtmlParser():
         # tool related
         self.bids2label = {}
         self.bids2xpath = {}
+        self.used_labels = {}
         
         # parse args
         self.parse_args(args)
@@ -48,7 +49,6 @@ class HtmlParser():
         label_attr = args.get('label_attr', '')
         label_method = args.get('label_generator', None)
         regen_label = not attr_check(label_method)
-        self.identifier = IdentifierTool(label_method)
         
         # [id] for mind2web is backend_node_id, for normal website use our method
         id_attr = args.get('id_attr', '')
@@ -77,6 +77,8 @@ class HtmlParser():
         # traverse and get special data
         if regen_id or regen_label:
             self.mark_id()
+            
+        self.identifier = IdentifierTool(label_method, self.used_labels)
           
     def set_args(self, use_position: bool=False, window_size: tuple=(), rect_dict: dict[str]={}, label_attr: str='', 
                  id_attr: str='', keep_attrs: list[str]=[], keep_elem: list[str]=[], obs_elem: list[str]=[], 
@@ -182,7 +184,6 @@ class HtmlParser():
             
             return temp_id, i2xpath
 
-        print('>>> Traverse Tree...')
         self.used_labels = {}
         root = self.get_root(self.dom_tree)
         _, i2xpath = _get_xpath_top_down(root)
@@ -319,8 +320,6 @@ class HtmlParser():
                               max_children: int=max_children, max_sibling: int=max_sibling) -> list[str]:
             to_keep = set(copy.deepcopy(keep))
             nodes_to_keep = set()
-            
-            print(max_children, max_depth, max_sibling)
             
             for _ in range(max(1, dfs_count)):
                 for bid in to_keep:
