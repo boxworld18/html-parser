@@ -30,7 +30,11 @@ class HtmlPrompt:
             label_str = self.prompt['label'].format(label=label)
         
         classes = []
+        values = set()
         for key, val in class_dict.items():
+            if val in values:
+                continue
+            values.add(val)
             classes.append(self.prompt['attr'].format(key=key, attr=val))
         classes_str = self.prompt['attr_splitter'].join(classes)
         

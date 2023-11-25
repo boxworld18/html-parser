@@ -121,8 +121,13 @@ class HtmlParser():
 
     @staticmethod
     def get_root(tree: html.HtmlElement) -> html.HtmlElement:
-        root = tree.xpath('/html')[0]
-        return root
+        node = tree.xpath('//*')[0]
+        while True:
+            parent = node.getparent()
+            if parent is None:
+                break
+            node = parent
+        return node
     
     def id_label_converter(self, label: str) -> str:
         return self.bids2label.get(label, '')
@@ -229,11 +234,13 @@ class HtmlParser():
             in_obs_list = (bid in self.obs or len(label) > 0) and visible
             keep_element = in_keep_list or in_obs_list or visible or par_keep
             
+            have_label = False
             if in_keep_list or in_obs_list:
                 if label is None or len(label) == 0:
                     label = self.identifier.generate()
                 self.bids2label[bid] = label
                 self.bids2label[label] = bid
+                have_label = True
             
             # get text or alt_text of current element
             text = get_text(node.text)
@@ -253,14 +260,14 @@ class HtmlParser():
             clickable_count = 0
             children = node.getchildren()
             for child in children:
-                cres, cmsg = _dfs(child)        
+                cres, cmsg = _dfs(child)       
                 clickable_count += 1 if cmsg['have_clickable'] else 0
                 if len(cres) != 0:
                     parts.append(cres)
 
             dom = self.prompt.subtree_constructor(parts)
             
-            keep_element = keep_element and (clickable_count > 1 or have_text)
+            keep_element = keep_element and (clickable_count > 1 or have_text or have_label)
             keep_as_parent = len(dom) > 0 and self.parent_chain
             if in_keep_list or keep_element or keep_as_parent:
                 dom = self.prompt.prompt_constructor(tag, label, text, dom, classes)
@@ -284,7 +291,7 @@ class HtmlParser():
         return obj
 
     # From mind2web, https://github.com/OSU-NLP-Group/Mind2Web/blob/main/src/data_utils/dom_utils.py
-    def prune_tree(self, dfs_count: int=1, max_depth: int=4, max_children: int=20, max_sibling: int=6) -> None:
+    def prune_tree(self, dfs_count: int=1, max_depth: int=3, max_children: int=30, max_sibling: int=3) -> None:
         def get_anscendants(node: html.HtmlElement, max_depth: int, current_depth: int=0) -> list[str]:
             if current_depth > max_depth:
                 return []
@@ -308,9 +315,12 @@ class HtmlParser():
 
             return descendants
         
-        def get_keep_elements(tree: html.HtmlElement, keep: list[str], dfs_count: int=1) -> list[str]:
+        def get_keep_elements(tree: html.HtmlElement, keep: list[str], dfs_count: int=1, max_depth: int=max_depth,
+                              max_children: int=max_children, max_sibling: int=max_sibling) -> list[str]:
             to_keep = set(copy.deepcopy(keep))
             nodes_to_keep = set()
+            
+            print(max_children, max_depth, max_sibling)
             
             for _ in range(max(1, dfs_count)):
                 for bid in to_keep:
@@ -337,15 +347,12 @@ class HtmlParser():
                     idx_in_sibling = siblings.index(candidate_node)
                     nodes_to_keep.update([x.attrib.get(self.id_attr, '') 
                                         for x in siblings[max(0, idx_in_sibling - max_sibling) : idx_in_sibling + max_sibling + 1]])
-                    
-                to_keep = copy.deepcopy(nodes_to_keep)
                 
-            for bid in keep:
-                candidate_node = tree.xpath(f'//*[@{self.id_attr}="{bid}"]')
-                if len(candidate_node) == 0:
-                    continue
-                candidate_node = candidate_node[0]
-                nodes_to_keep.update([x.attrib.get(self.id_attr, '') for x in candidate_node.xpath('ancestor::*')])
+                max_children = int(max_children * 0.5)
+                max_depth = int(max_depth * 0.5)
+                max_sibling = int(max_sibling * 0.7)
+                
+                to_keep = copy.deepcopy(nodes_to_keep)
 
             return list(nodes_to_keep)
 
@@ -361,7 +368,11 @@ class HtmlParser():
             else:
                 is_keep = (node.getparent().attrib.get(self.id_attr, '') in nodes_to_keep)
                 is_candidate = (node.getparent().attrib.get(self.id_attr, '') in self.keep)
+            
             if not is_keep and node.getparent() is not None:
+                # insert all children into parent
+                for child in node.getchildren():
+                    node.addprevious(child)
                 node.getparent().remove(node)
             else:
                 if not is_candidate or node.tag == 'text':
