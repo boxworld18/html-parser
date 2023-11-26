@@ -292,7 +292,7 @@ class HtmlParser():
         return obj
 
     # From mind2web, https://github.com/OSU-NLP-Group/Mind2Web/blob/main/src/data_utils/dom_utils.py
-    def prune_tree(self, dfs_count: int=1, max_depth: int=3, max_children: int=30, max_sibling: int=3) -> None:
+    def prune_tree(self, dfs_count: int=1, max_depth: int=3, max_children: int=30, max_sibling: int=3, keep_parent: bool=False) -> None:
         def get_anscendants(node: html.HtmlElement, max_depth: int, current_depth: int=0) -> list[str]:
             if current_depth > max_depth:
                 return []
@@ -352,6 +352,15 @@ class HtmlParser():
                 max_sibling = int(max_sibling * 0.7)
                 
                 to_keep = copy.deepcopy(nodes_to_keep)
+                
+            if keep_parent:
+                for bid in keep:
+                    candidate_node = tree.xpath(f'//*[@{self.id_attr}="{bid}"]')
+                    if len(candidate_node) == 0:
+                        continue
+                    
+                    candidate_node = candidate_node[0]
+                    nodes_to_keep.update([x.attrib.get(self.id_attr, '') for x in candidate_node.xpath("ancestor::*")])
 
             return list(nodes_to_keep)
 
@@ -374,8 +383,8 @@ class HtmlParser():
                     node.addprevious(child)
                 node.getparent().remove(node)
             else:
-                if not is_candidate or node.tag == 'text':
-                    node.attrib.pop(self.id_attr, None)
+                # if not is_candidate or node.tag == 'text':
+                #     node.attrib.pop(self.id_attr, None)
                 if (
                     len(node.attrib) == 0
                     and not any([x.tag == 'text' for x in node.getchildren()])
