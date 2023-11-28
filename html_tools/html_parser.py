@@ -131,6 +131,12 @@ class HtmlParser():
             node = parent
         return node
     
+    def get_node_by_bid(self, tree: html.HtmlElement, bid: str) -> html.HtmlElement:
+        nodes = tree.xpath(f'//*[@{self.id_attr}="{bid}"]')
+        if len(nodes) == 0:
+            return None
+        return nodes[0]
+    
     def id_label_converter(self, label: str) -> str:
         return self.bids2label.get(label, '')
     
@@ -190,7 +196,7 @@ class HtmlParser():
         
         self.bids2xpath = i2xpath
     
-    def parse_tree(self) -> dict[str]:
+    def parse(self, root: html.HtmlElement, keep: list[str], obs: list[str], parent_chain: bool=False) -> dict[str]:
         def get_text(str: str) -> str:
             return '' if str is None else str.strip()[:500]
         
@@ -223,24 +229,25 @@ class HtmlParser():
 
             return True
         
-        def _dfs(node: html.HtmlElement, par_keep: bool=False) -> (str, dict[str]):
+        def _dfs(node: html.HtmlElement, keep: list[str]=[], obs: list[str]=[], 
+                 parent_chain: bool=False, bids2label: dict[str]={}, par_keep: bool=False) -> (str, dict[str]):
             # basic information
             bid = node.attrib.get(self.id_attr, '')
             tag = node.tag
             label = node.attrib.get(self.label_attr, '')
-            
             # element which is keeped equivalent to visible
             visible = is_visible(bid)
-            in_keep_list = bid in self.keep
-            in_obs_list = (bid in self.obs or len(label) > 0) and visible
+            in_keep_list = bid in keep
+            in_obs_list = (bid in obs or len(label) > 0) and visible
             keep_element = in_keep_list or in_obs_list or visible or par_keep
             
             have_label = False
             if in_keep_list or in_obs_list:
                 if label is None or len(label) == 0:
                     label = self.identifier.generate()
-                self.bids2label[bid] = label
-                self.bids2label[label] = bid
+                    node.attrib[self.label_attr] = label
+                bids2label[bid] = label
+                bids2label[label] = bid
                 have_label = True
             
             # get text or alt_text of current element
@@ -261,28 +268,35 @@ class HtmlParser():
             clickable_count = 0
             children = node.getchildren()
             for child in children:
-                cres, cmsg = _dfs(child)       
-                clickable_count += 1 if cmsg['have_clickable'] else 0
+                cres, cmsg = _dfs(child, keep, obs, parent_chain, bids2label)
+                clickable_count += 1 if cmsg.get('have_clickable', False) else 0
+                bids2label.update(cmsg.get('bids2label', {}))
                 if len(cres) != 0:
                     parts.append(cres)
 
             dom = self.prompt.subtree_constructor(parts)
             
             keep_element = keep_element and (clickable_count > 1 or have_text or have_label)
-            keep_as_parent = len(dom) > 0 and self.parent_chain
+            keep_as_parent = len(dom) > 0 and parent_chain
             if in_keep_list or keep_element or keep_as_parent:
                 dom = self.prompt.prompt_constructor(tag, label, text, dom, classes)
                 
             control_msg = {
                 'have_clickable': bool(clickable_count or have_text),
+                'bids2label': bids2label,
             }
             
             return dom, control_msg
         
+        dom, cmsg = _dfs(root, keep, obs, parent_chain)
+        return dom, cmsg
+        
+    def parse_tree(self) -> dict[str]:
         # start from here
         stt = time.time()
         root = self.get_root(self.dom_tree)
-        dom, cmsg = _dfs(root)
+        dom, cmsg = self.parse(root, self.keep, self.obs, self.parent_chain)
+        self.bids2label = cmsg.get('bids2label', {})
         
         obj = {
             'html': dom,
@@ -292,7 +306,8 @@ class HtmlParser():
         return obj
 
     # From mind2web, https://github.com/OSU-NLP-Group/Mind2Web/blob/main/src/data_utils/dom_utils.py
-    def prune_tree(self, dfs_count: int=1, max_depth: int=3, max_children: int=30, max_sibling: int=3, keep_parent: bool=False) -> None:
+    def get_keep_elements(self, tree: html.HtmlElement, keep: list[str], max_depth: int, max_children: int, 
+                            max_sibling: int, dfs_count: int=1, keep_parent: bool=False) -> list[str]:
         def get_anscendants(node: html.HtmlElement, max_depth: int, current_depth: int=0) -> list[str]:
             if current_depth > max_depth:
                 return []
@@ -316,60 +331,52 @@ class HtmlParser():
 
             return descendants
         
-        def get_keep_elements(tree: html.HtmlElement, keep: list[str], dfs_count: int=1, max_depth: int=max_depth,
-                              max_children: int=max_children, max_sibling: int=max_sibling) -> list[str]:
-            to_keep = set(copy.deepcopy(keep))
-            nodes_to_keep = set()
-            
-            for _ in range(max(1, dfs_count)):
-                for bid in to_keep:
-                    candidate_node = tree.xpath(f'//*[@{self.id_attr}="{bid}"]')
-                    if len(candidate_node) == 0:
-                        continue
-                    
-                    candidate_node = candidate_node[0]
-                    nodes_to_keep.add(candidate_node.attrib[self.id_attr])
-                    # get all ancestors or with max depth
-                    nodes_to_keep.update([x.attrib.get(self.id_attr, '') for x in get_anscendants(candidate_node, max_depth)])
-                    
-                    # get descendants with max depth
-                    nodes_to_keep.update([x.attrib.get(self.id_attr, '') for x in get_descendants(candidate_node, max_depth)][:max_children])
-                    # get siblings within range
-                    parent = candidate_node.getparent()
-                    if parent is None:
-                        continue
-                    
-                    siblings = [x for x in parent.getchildren() if x.tag != 'text']
-                    if candidate_node not in siblings:
-                        continue
-                    
-                    idx_in_sibling = siblings.index(candidate_node)
-                    nodes_to_keep.update([x.attrib.get(self.id_attr, '') 
-                                        for x in siblings[max(0, idx_in_sibling - max_sibling) : idx_in_sibling + max_sibling + 1]])
-                
-                max_children = int(max_children * 0.5)
-                max_depth = int(max_depth * 0.5)
-                max_sibling = int(max_sibling * 0.7)
-                
-                to_keep = copy.deepcopy(nodes_to_keep)
-                
-            if keep_parent:
-                for bid in keep:
-                    candidate_node = tree.xpath(f'//*[@{self.id_attr}="{bid}"]')
-                    if len(candidate_node) == 0:
-                        continue
-                    
-                    candidate_node = candidate_node[0]
-                    nodes_to_keep.update([x.attrib.get(self.id_attr, '') for x in candidate_node.xpath("ancestor::*")])
-
-            return list(nodes_to_keep)
-
-        # clone the tree
-        new_tree = copy.deepcopy(self.dom_tree)
-        nodes_to_keep = get_keep_elements(new_tree, self.keep, dfs_count)
+        to_keep = set(copy.deepcopy(keep))
+        nodes_to_keep = set()
         
+        for _ in range(max(1, dfs_count)):
+            for bid in to_keep:
+                candidate_node = self.get_node_by_bid(tree, bid)
+                if candidate_node is None:
+                    continue
+                
+                nodes_to_keep.add(candidate_node.attrib[self.id_attr])
+                # get all ancestors or with max depth
+                nodes_to_keep.update([x.attrib.get(self.id_attr, '') for x in get_anscendants(candidate_node, max_depth)])
+                
+                # get descendants with max depth
+                nodes_to_keep.update([x.attrib.get(self.id_attr, '') for x in get_descendants(candidate_node, max_depth)][:max_children])
+                # get siblings within range
+                parent = candidate_node.getparent()
+                if parent is None:
+                    continue
+                
+                siblings = [x for x in parent.getchildren() if x.tag != 'text']
+                if candidate_node not in siblings:
+                    continue
+                
+                idx_in_sibling = siblings.index(candidate_node)
+                nodes_to_keep.update([x.attrib.get(self.id_attr, '') 
+                                    for x in siblings[max(0, idx_in_sibling - max_sibling) : idx_in_sibling + max_sibling + 1]])
+            
+            max_children = int(max_children * 0.5)
+            max_depth = int(max_depth * 0.5)
+            max_sibling = int(max_sibling * 0.7)
+            
+            to_keep = copy.deepcopy(nodes_to_keep)
+            
+        if keep_parent:
+            for bid in keep:
+                candidate_node = self.get_node_by_bid(tree, bid)
+                if candidate_node is None:
+                    continue
+                nodes_to_keep.update([x.attrib.get(self.id_attr, '') for x in candidate_node.xpath("ancestor::*")])
+
+        return list(nodes_to_keep)
+    
+    def prune(self, tree: html.HtmlElement, nodes_to_keep: list[str]):
         # remove nodes not in nodes_to_keep
-        for node in new_tree.xpath('//*')[::-1]:
+        for node in tree.xpath('//*')[::-1]:
             if node.tag != 'text':
                 is_keep = node.attrib.get(self.id_attr, '') in nodes_to_keep
                 is_candidate = node.attrib.get(self.id_attr, '') in self.keep
@@ -397,4 +404,21 @@ class HtmlParser():
                         node.addprevious(child)
                     node.getparent().remove(node)
         
+        return tree
+                    
+    def prune_tree(self, dfs_count: int=1, max_depth: int=3, max_children: int=30, 
+                   max_sibling: int=3, keep_parent: bool=False) -> None:
+        # clone the tree
+        new_tree = copy.deepcopy(self.dom_tree)
+        nodes_to_keep = self.get_keep_elements(new_tree, self.keep, max_depth, max_children, max_sibling, dfs_count, keep_parent)
+        new_tree = self.prune(new_tree, nodes_to_keep)
+        
         self.dom_tree = new_tree
+    
+    def get_segment(self, bid: str) -> str:
+        # clone the tree
+        new_tree = copy.deepcopy(self.dom_tree)
+        nodes_to_keep = self.get_keep_elements(new_tree, [bid], 1, 2, 1)
+        new_tree = self.prune(new_tree, nodes_to_keep)
+        dom, _ = self.parse(new_tree, [], [], False)
+        return dom

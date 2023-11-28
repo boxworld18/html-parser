@@ -22,6 +22,12 @@ mind2web_keep_attrs = [
     'value',
 ]
 
+miniwob_attrs = [
+    'id',
+    'type',
+    'value',
+]
+
 config_meta = """
 ======= Configs =======
 Columns:
