@@ -47,6 +47,7 @@ class HtmlParser():
         
         # [Label] for vimium is temp_clickable_label, otherwise keep all of it
         label_attr = args.get('label_attr', '')
+        get_new_label = args.get('regenerate_label', False)
         label_method = args.get('label_generator', None)
         regen_label = not attr_check(label_method)
         
@@ -68,7 +69,7 @@ class HtmlParser():
         obs_elem = args.get('obs_elem', [])
         
         # sanity check
-        self.set_args(use_position, window_size, rect, label_attr, id_attr, keep_attrs, keep_elem, obs_elem, parent_chain)
+        self.set_args(use_position, window_size, rect, label_attr, id_attr, keep_attrs, keep_elem, obs_elem, parent_chain, get_new_label)
         
         # [Prompt]
         prompt = args.get('prompt', None)
@@ -77,12 +78,15 @@ class HtmlParser():
         # traverse and get special data
         if regen_id or regen_label:
             self.mark_id()
+        
+        if get_new_label:
+            self.used_labels = {}
             
         self.identifier = IdentifierTool(label_method, self.used_labels)
           
     def set_args(self, use_position: bool=False, window_size: tuple=(), rect_dict: dict[str]={}, label_attr: str='', 
                  id_attr: str='', keep_attrs: list[str]=[], keep_elem: list[str]=[], obs_elem: list[str]=[], 
-                 parent_chain: bool=False) -> None:
+                 parent_chain: bool=False, get_new_label: bool=False) -> None:
         
         self.use_position = use_position
         self.window_size = window_size
@@ -93,6 +97,7 @@ class HtmlParser():
         self.keep = keep_elem
         self.obs = obs_elem
         self.parent_chain = parent_chain
+        self.get_new_label = get_new_label
         
     def get_config(self):
         config = {
@@ -196,7 +201,7 @@ class HtmlParser():
         
         self.bids2xpath = i2xpath
     
-    def parse(self, root: html.HtmlElement, keep: list[str], obs: list[str], parent_chain: bool=False) -> dict[str]:
+    def parse(self, root: html.HtmlElement, keep: list[str], obs: list[str], parent_chain: bool=False, get_new_label: bool=False) -> dict[str]:
         def get_text(str: str) -> str:
             return '' if str is None else str.strip()[:500]
         
@@ -230,7 +235,8 @@ class HtmlParser():
             return True
         
         def _dfs(node: html.HtmlElement, keep: list[str]=[], obs: list[str]=[], 
-                 parent_chain: bool=False, bids2label: dict[str]={}, par_keep: bool=False) -> (str, dict[str]):
+                 parent_chain: bool=False, bids2label: dict[str]={}, par_keep: bool=False, 
+                 get_new_label: bool=False) -> (str, dict[str]):
             # basic information
             bid = node.attrib.get(self.id_attr, '')
             tag = node.tag
@@ -243,7 +249,7 @@ class HtmlParser():
             
             have_label = False
             if in_keep_list or in_obs_list:
-                if label is None or len(label) == 0:
+                if label is None or len(label) == 0 or get_new_label:
                     label = self.identifier.generate()
                     node.attrib[self.label_attr] = label
                 bids2label[bid] = label
@@ -268,7 +274,7 @@ class HtmlParser():
             clickable_count = 0
             children = node.getchildren()
             for child in children:
-                cres, cmsg = _dfs(child, keep, obs, parent_chain, bids2label)
+                cres, cmsg = _dfs(child, keep, obs, parent_chain, bids2label, get_new_label=get_new_label)
                 clickable_count += 1 if cmsg.get('have_clickable', False) else 0
                 bids2label.update(cmsg.get('bids2label', {}))
                 if len(cres) != 0:
@@ -288,14 +294,14 @@ class HtmlParser():
             
             return dom, control_msg
         
-        dom, cmsg = _dfs(root, keep, obs, parent_chain)
+        dom, cmsg = _dfs(root, keep, obs, parent_chain, get_new_label=get_new_label)
         return dom, cmsg
         
     def parse_tree(self) -> dict[str]:
         # start from here
         stt = time.time()
         root = self.get_root(self.dom_tree)
-        dom, cmsg = self.parse(root, self.keep, self.obs, self.parent_chain)
+        dom, cmsg = self.parse(root, self.keep, self.obs, self.parent_chain, self.get_new_label)
         self.bids2label = cmsg.get('bids2label', {})
         
         obj = {
@@ -418,7 +424,7 @@ class HtmlParser():
     def get_segment(self, bid: str) -> str:
         # clone the tree
         new_tree = copy.deepcopy(self.dom_tree)
-        nodes_to_keep = self.get_keep_elements(new_tree, [bid], 1, 2, 1)
+        nodes_to_keep = self.get_keep_elements(new_tree, [bid], 0, 2, 1)
         new_tree = self.prune(new_tree, nodes_to_keep)
         dom, _ = self.parse(new_tree, [], [], False)
         return dom
