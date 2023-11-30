@@ -5,6 +5,7 @@ import json, re, os
 from .identifier import IdentifierTool
 from .prompt import HtmlPrompt
 from .configs import config_meta
+from .utils import get_xpath_top_down
 
 class HtmlParser():
     def __init__(self, ctx: str, args: dict[str]={}) -> None:
@@ -149,56 +150,9 @@ class HtmlParser():
         return self.bids2xpath.get(label, '')
         
     def mark_id(self) -> None:
-        def _get_xpath_top_down(element, path='', order=0, in_svg=False, temp_id=0, i2xpath={}):
-            # path
-            tag = element.tag.lower()
-            in_svg = in_svg or (tag == 'svg')
-            
-            if not in_svg and 'id' in element.attrib:
-                node_id = element.attrib['id']
-                path = f"//*[@id='{node_id}']"
-            else:
-                suffix = f'[{order}]' if order > 0 else ''
-                prefix = f"*[name()='{tag}']" if in_svg else tag
-                path = path + '/' + prefix + suffix
-            
-            # add temp id
-            element.attrib['temp_id'] = str(temp_id)
-            ori_label = element.attrib.get(self.label_attr, '')
-            if ori_label != '':
-                self.used_labels[ori_label] = True
-            
-            bid = str(temp_id)
-            i2xpath[bid] = f'xpath/{path}'
-            i2xpath[f'/{path}'] = bid
-            i2xpath[f'xpath/{path}'] = bid
-            i2xpath[f'xpath=/{path}'] = bid
-            
-            temp_id += 1
-            
-            # traverse node
-            children = element.getchildren()
-            tag_dict = {}
-            id_list = []
-            for child in children:
-                ctag = child.tag.lower()
-                if ctag not in tag_dict:
-                    tag_dict[ctag] = 0
-                tag_dict[ctag] += 1
-                id_list.append(tag_dict[ctag])
-            
-            for cid, child in zip(id_list, children):
-                ctag = child.tag.lower()
-                cod = cid if tag_dict[ctag] > 1 else 0
-                temp_id, i2x = _get_xpath_top_down(child, path, cod, in_svg, temp_id, i2xpath)
-                i2xpath.update(i2x)
-            
-            return temp_id, i2xpath
-
-        self.used_labels = {}
         root = self.get_root(self.dom_tree)
-        _, i2xpath = _get_xpath_top_down(root)
-        
+        _, i2xpath, used_labels = get_xpath_top_down(root, self.id_attr)
+        self.used_labels = used_labels        
         self.bids2xpath = i2xpath
     
     def parse(self, root: html.HtmlElement, keep: list[str], obs: list[str], parent_chain: bool=False, get_new_label: bool=False) -> dict[str]:
@@ -235,18 +189,20 @@ class HtmlParser():
             return True
         
         def _dfs(node: html.HtmlElement, keep: list[str]=[], obs: list[str]=[], 
-                 parent_chain: bool=False, bids2label: dict[str]={}, par_keep: bool=False, 
-                 get_new_label: bool=False) -> (str, dict[str]):
+                 parent_chain: bool=False, get_new_label: bool=False, par_keep: bool=False) -> (str, dict[str]):
             # basic information
             bid = node.attrib.get(self.id_attr, '')
             tag = node.tag
             label = node.attrib.get(self.label_attr, '')
+            
             # element which is keeped equivalent to visible
             visible = is_visible(bid)
             in_keep_list = bid in keep
             in_obs_list = (bid in obs or len(label) > 0) and visible
             keep_element = in_keep_list or in_obs_list or visible or par_keep
             
+            # mark label
+            bids2label, labeled_elems = {}, []
             have_label = False
             if in_keep_list or in_obs_list:
                 if label is None or len(label) == 0 or get_new_label:
@@ -261,11 +217,17 @@ class HtmlParser():
             
             classes = {}
             # keep attributes if needed
-            for attr in self.keep_attrs:
+            keep_all_attrs = len(self.keep_attrs) == 0
+            keep_attrs = node.attrib.keys() if keep_all_attrs else self.keep_attrs
+            
+            # traverse attributes
+            for attr in keep_attrs:
                 if attr not in node.attrib or not check_attr(attr, node):
                     continue
+                if attr in [self.id_attr, self.label_attr]:
+                    continue
                 val = get_text(node.attrib[attr])
-                if len(val) > 0:
+                if len(val) > 0 or keep_all_attrs:
                     classes[attr] = val
 
             have_text = len(text) > 0 or len(classes) > 0
@@ -274,9 +236,10 @@ class HtmlParser():
             clickable_count = 0
             children = node.getchildren()
             for child in children:
-                cres, cmsg = _dfs(child, keep, obs, parent_chain, bids2label, get_new_label=get_new_label)
+                cres, cmsg = _dfs(child, keep, obs, parent_chain, get_new_label)
                 clickable_count += 1 if cmsg.get('have_clickable', False) else 0
                 bids2label.update(cmsg.get('bids2label', {}))
+                labeled_elems.extend(cmsg.get('label_element', []))
                 if len(cres) != 0:
                     parts.append(cres)
 
@@ -286,15 +249,19 @@ class HtmlParser():
             keep_as_parent = len(dom) > 0 and parent_chain
             if in_keep_list or keep_element or keep_as_parent:
                 dom = self.prompt.prompt_constructor(tag, label, text, dom, classes)
-                
+            
+            if have_label:
+                labeled_elems.append(bid)
+            
             control_msg = {
                 'have_clickable': bool(clickable_count or have_text),
                 'bids2label': bids2label,
+                'label_element': labeled_elems,
             }
             
             return dom, control_msg
         
-        dom, cmsg = _dfs(root, keep, obs, parent_chain, get_new_label=get_new_label)
+        dom, cmsg = _dfs(root, keep, obs, parent_chain, get_new_label)
         return dom, cmsg
         
     def parse_tree(self) -> dict[str]:
@@ -303,6 +270,7 @@ class HtmlParser():
         root = self.get_root(self.dom_tree)
         dom, cmsg = self.parse(root, self.keep, self.obs, self.parent_chain, self.get_new_label)
         self.bids2label = cmsg.get('bids2label', {})
+        self.keep = list(set(self.keep + cmsg.get('label_element', [])))
         
         obj = {
             'html': dom,
@@ -380,7 +348,7 @@ class HtmlParser():
 
         return list(nodes_to_keep)
     
-    def prune(self, tree: html.HtmlElement, nodes_to_keep: list[str]):
+    def prune(self, tree: html.HtmlElement, nodes_to_keep: list[str]) -> html.HtmlElement:
         # remove nodes not in nodes_to_keep
         for node in tree.xpath('//*')[::-1]:
             if node.tag != 'text':
@@ -426,5 +394,5 @@ class HtmlParser():
         new_tree = copy.deepcopy(self.dom_tree)
         nodes_to_keep = self.get_keep_elements(new_tree, [bid], 0, 2, 1)
         new_tree = self.prune(new_tree, nodes_to_keep)
-        dom, _ = self.parse(new_tree, [], [], False)
+        dom, _ = self.parse(new_tree, self.keep, [], False)
         return dom

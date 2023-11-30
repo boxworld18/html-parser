@@ -16,6 +16,7 @@ xml_prompt = {
 
 prompts = {
     'refine': refine_prompt,
-    'xml': xml_prompt
+    'xml': xml_prompt,
+    'new_data': refine_prompt, 
 }
     

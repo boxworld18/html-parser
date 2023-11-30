@@ -2,43 +2,6 @@ from html_tools import HtmlParser
 from html_tools import mind2web_keep_attrs, basic_attrs
 from html_tools import print_html_object
 
-def basic_sample():
-    with open('sample/sample4.html', 'r') as f:
-        src = f.read()
-
-    args = {
-        'use_position': True,
-        'window_size': (0, 100, 200, 100),
-        'rect_dict': {
-            '0': (0, 0, 100, 100),
-            '3': (101, 50, 100, 100),
-        },
-        'label_attr': 'temp_clickable_label',
-        'label_generator': 'order',
-        'attr_list': basic_attrs,
-        'keep_elem': [],
-        'parent_chain': True,
-        'prompt': 'refine',
-    }
-
-    return src, args
-
-# For mind2web
-def mind2web_sample():
-    with open('sample/sample3.html', 'r') as f:
-        src = f.read()
-    
-    args = {
-        'use_position': False,
-        'id_attr': 'backend_node_id',
-        'label_attr': 'temp_clickable_label',
-        'label_generator': 'order',
-        'attr_list': mind2web_keep_attrs,
-        'keep_elem': ['13257', '13272'],
-    }
-    
-    return src, args
-
 # For vimium
 def vimium_sample():
     with open('sample/sample2.html', 'r') as f:
@@ -54,16 +17,88 @@ def vimium_sample():
         'prompt': 'refine',
     }
     
-    return src, args
+    hp = HtmlParser(src, args)
+    hp.prune_tree(2)
+    res = hp.parse_tree()
+    
+    return hp, res
 
-if __name__ == '__main__':
-    # TODO: change here to test different samples
-    src, args = vimium_sample()
+# For mind2web
+def mind2web_sample():
+    with open('sample/sample3.html', 'r') as f:
+        src = f.read()
+    
+    args = {
+        'use_position': False,
+        'id_attr': 'backend_node_id',
+        'label_attr': 'temp_clickable_label',
+        'label_generator': 'order',
+        'attr_list': mind2web_keep_attrs,
+        'keep_elem': ['13257', '13272'],
+    }
     
     hp = HtmlParser(src, args)
     hp.prune_tree(2)
     res = hp.parse_tree()
     
+    return hp, res
+
+def basic_sample():
+    with open('sample/sample4.html', 'r') as f:
+        src = f.read()
+
+    args = {
+        'use_position': True,
+        'window_size': (0, 100, 200, 100),
+        'rect_dict': {
+            '0': (0, 0, 100, 100),
+            '3': (101, 50, 100, 100),
+        },
+        'label_attr': 'temp_clickable_label',
+        'label_generator': 'order',
+        'attr_list': basic_attrs,
+        'keep_elem': ['2'],
+        'parent_chain': True,
+        'prompt': 'refine',
+    }
+
+    hp = HtmlParser(src, args)
+    res = hp.parse_tree()
+    
+    bid = hp.id_label_converter('A')
+    print(bid, hp.get_segment(bid))
+    
+    return hp, res
+
+# For our data
+def own_sample():
+    with open('sample/sample5.html', 'r') as f:
+        src = f.read()
+    
+    args = {
+        'use_position': False,
+        'regenerate_label': True,
+        'label_generator': 'order',
+        # 'id_attr': 'temp_id',
+        'label_attr': 'id',
+        'attr_list': [],
+        'prompt': 'new_data',
+    }
+    
+    hp = HtmlParser(src, args)
+    res = hp.parse_tree()
+    
+    # you can get segment by id
+    bid = hp.id_label_converter('C')
+    print(bid)
+    print(hp.get_segment(bid))
+    
+    return hp, res
+
+if __name__ == '__main__':
+    # TODO: change here to test different samples
+    hp, res = own_sample()   
+     
     _, cfgs = hp.get_config()
     print(cfgs)
     
