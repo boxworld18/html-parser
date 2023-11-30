@@ -1,17 +1,17 @@
 from lxml import html
 def get_xpath_top_down(element: html.HtmlElement, id_column: str='temp_id', path: str='', order: int=0, 
-                        in_svg: bool=False, temp_id: int=0, i2xpath: dict[str, str]={}) -> tuple[int, dict[str, str], dict[str]]:
-    used_labels = {}
+                        in_svg: bool=False, temp_id: int=0) -> tuple[int, dict[str, str], dict[str]]:
+    used_labels, i2xpath = {}, {}
     # path
     tag = element.tag.lower()
     in_svg = in_svg or (tag == 'svg')
     
     if not in_svg and 'id' in element.attrib:
         node_id = element.attrib['id']
-        path = f"//*[@id='{node_id}']"
+        path = f'//*[@id="{node_id}"]'
     else:
         suffix = f'[{order}]' if order > 0 else ''
-        prefix = f"*[name()='{tag}']" if in_svg else tag
+        prefix = f'*[name()="{tag}"]' if in_svg else tag
         path = path + '/' + prefix + suffix
     
     # add temp id
@@ -21,8 +21,8 @@ def get_xpath_top_down(element: html.HtmlElement, id_column: str='temp_id', path
         used_labels[ori_label] = True
     
     bid = str(temp_id)
-    i2xpath[bid] = f'xpath/{path}'
-    i2xpath[f'/{path}'] = bid
+    i2xpath[bid] = path
+    i2xpath[path] = bid
     i2xpath[f'xpath/{path}'] = bid
     i2xpath[f'xpath=/{path}'] = bid
     
@@ -42,7 +42,7 @@ def get_xpath_top_down(element: html.HtmlElement, id_column: str='temp_id', path
     for cid, child in zip(id_list, children):
         ctag = child.tag.lower()
         cod = cid if tag_dict[ctag] > 1 else 0
-        temp_id, i2x, ulabels = get_xpath_top_down(child, id_column, path, cod, in_svg, temp_id, i2xpath)
+        temp_id, i2x, ulabels = get_xpath_top_down(child, id_column, path, cod, in_svg, temp_id)
         i2xpath.update(i2x)
         used_labels.update(ulabels)
     

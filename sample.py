@@ -1,6 +1,36 @@
+import json
+
 from html_tools import HtmlParser
 from html_tools import mind2web_keep_attrs, basic_attrs
 from html_tools import print_html_object
+
+# basic usage of HtmlParser
+def basic_sample():
+    with open('sample/sample1.html', 'r') as f:
+        src = f.read()
+
+    args = {
+        'use_position': True,
+        'window_size': (0, 100, 200, 100),
+        'rect_dict': {
+            '0': (0, 0, 100, 100),
+            '3': (101, 50, 100, 100),
+        },
+        'label_attr': 'temp_clickable_label',
+        'label_generator': 'order',
+        'attr_list': basic_attrs,
+        'keep_elem': ['2'],
+        'parent_chain': True,
+        'prompt': 'refine',
+    }
+
+    hp = HtmlParser(src, args)
+    res = hp.parse_tree()
+    
+    bid = hp.id_label_converter('A')
+    print(bid, hp.get_segment(bid))
+    
+    return hp, res
 
 # For vimium
 def vimium_sample():
@@ -43,31 +73,32 @@ def mind2web_sample():
     
     return hp, res
 
-def basic_sample():
+# For our extension
+def extension_sample():
     with open('sample/sample4.html', 'r') as f:
         src = f.read()
-
+        
+    with open('sample/sample4.json', 'r') as f:
+        meta = json.load(f)
+    
     args = {
         'use_position': True,
-        'window_size': (0, 100, 200, 100),
-        'rect_dict': {
-            '0': (0, 0, 100, 100),
-            '3': (101, 50, 100, 100),
-        },
+        'window_size': tuple(meta['window']),
+        'rect_dict': meta['rect'], # temperary, you should update rect before parsing
         'label_attr': 'temp_clickable_label',
         'label_generator': 'order',
+        'regenerate_label': False,
         'attr_list': basic_attrs,
-        'keep_elem': ['2'],
-        'parent_chain': True,
-        'prompt': 'refine',
+        'prompt': 'new_data'
     }
-
+    
     hp = HtmlParser(src, args)
     res = hp.parse_tree()
     
-    bid = hp.id_label_converter('A')
-    print(bid, hp.get_segment(bid))
-    
+    bid = hp.id_label_converter('SFC')
+    print(bid)
+    print(hp.get_segment(bid))
+
     return hp, res
 
 # For our data
@@ -97,7 +128,7 @@ def own_sample():
 
 if __name__ == '__main__':
     # TODO: change here to test different samples
-    hp, res = own_sample()   
+    hp, res = extension_sample()   
      
     _, cfgs = hp.get_config()
     print(cfgs)

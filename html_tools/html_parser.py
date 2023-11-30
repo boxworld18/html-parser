@@ -116,7 +116,10 @@ class HtmlParser():
         }
         
         return config, config_meta.format(**config)
-        
+    
+    def update_rect_dict(self, rect_dict: dict[str]={}) -> None:
+        self.rect = rect_dict
+    
     @staticmethod
     def ctx2tree(ctx: str) -> html.HtmlElement:
         # remove useless tags, eg. style and script
