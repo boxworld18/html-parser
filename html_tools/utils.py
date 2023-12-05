@@ -1,5 +1,5 @@
 from lxml import html
-def get_xpath_top_down(element: html.HtmlElement, id_column: str='temp_id', path: str='', order: int=0, 
+def get_xpath_top_down(element: html.HtmlElement, id_column: str='temp_id', label_column: str='temp_clickable_label', path: str='', order: int=0, 
                         in_svg: bool=False, temp_id: int=0) -> tuple[int, dict[str, str], dict[str]]:
     used_labels, i2xpath = {}, {}
     # path
@@ -15,8 +15,8 @@ def get_xpath_top_down(element: html.HtmlElement, id_column: str='temp_id', path
         path = path + '/' + prefix + suffix
     
     # add temp id
-    element.attrib['temp_id'] = str(temp_id)
-    ori_label = element.attrib.get(id_column, '')
+    element.attrib[id_column] = str(temp_id)
+    ori_label = element.attrib.get(label_column, '')
     if ori_label != '':
         used_labels[ori_label] = True
     
@@ -42,7 +42,7 @@ def get_xpath_top_down(element: html.HtmlElement, id_column: str='temp_id', path
     for cid, child in zip(id_list, children):
         ctag = child.tag.lower()
         cod = cid if tag_dict[ctag] > 1 else 0
-        temp_id, i2x, ulabels = get_xpath_top_down(child, id_column, path, cod, in_svg, temp_id)
+        temp_id, i2x, ulabels = get_xpath_top_down(child, id_column, label_column, path, cod, in_svg, temp_id)
         i2xpath.update(i2x)
         used_labels.update(ulabels)
     
@@ -89,3 +89,13 @@ def print_html_object(obj: str='') -> str:
             content += ch
     
     return result
+
+def rect2tuple(rect: str) -> tuple[int, int, int, int]:
+    if rect is None or type(rect) != type('str'):
+        return None
+    rect = rect.strip()
+    if rect.count(',') != 3:
+        return None
+    rect = rect.split(',')
+    rect = [float(r) for r in rect]
+    return tuple(rect)

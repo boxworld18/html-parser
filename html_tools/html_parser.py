@@ -5,7 +5,7 @@ import json, re, os
 from .identifier import IdentifierTool
 from .prompt import HtmlPrompt
 from .configs import config_meta
-from .utils import get_xpath_top_down
+from .utils import get_xpath_top_down, rect2tuple
 
 class HtmlParser():
     def __init__(self, ctx: str, args: dict[str]={}) -> None:
@@ -34,6 +34,7 @@ class HtmlParser():
         args = {} if args is None else args
 
         # [Position] use_pos: False -> use full page, otherwise use window_size
+        dataset = args.get('dataset', '')
         use_position = args.get('use_position', False)
         window_size = args.get('window_size', None)
         rect = args.get('rect_dict', None)
@@ -70,7 +71,7 @@ class HtmlParser():
         obs_elem = args.get('obs_elem', [])
         
         # sanity check
-        self.set_args(use_position, window_size, rect, label_attr, id_attr, keep_attrs, keep_elem, obs_elem, parent_chain, get_new_label)
+        self.set_args(use_position, window_size, rect, label_attr, id_attr, keep_attrs, keep_elem, obs_elem, parent_chain, get_new_label, dataset)
         
         # [Prompt]
         prompt = args.get('prompt', None)
@@ -87,7 +88,7 @@ class HtmlParser():
           
     def set_args(self, use_position: bool=False, window_size: tuple=(), rect_dict: dict[str]={}, label_attr: str='', 
                  id_attr: str='', keep_attrs: list[str]=[], keep_elem: list[str]=[], obs_elem: list[str]=[], 
-                 parent_chain: bool=False, get_new_label: bool=False) -> None:
+                 parent_chain: bool=False, get_new_label: bool=False, dataset: str='') -> None:
         
         self.use_position = use_position
         self.window_size = window_size
@@ -99,6 +100,7 @@ class HtmlParser():
         self.obs = obs_elem
         self.parent_chain = parent_chain
         self.get_new_label = get_new_label
+        self.dataset = dataset
         
     def get_config(self):
         config = {
@@ -154,7 +156,7 @@ class HtmlParser():
         
     def mark_id(self) -> None:
         root = self.get_root(self.dom_tree)
-        _, i2xpath, used_labels = get_xpath_top_down(root, self.id_attr)
+        _, i2xpath, used_labels = get_xpath_top_down(root, self.id_attr, self.label_attr)
         self.used_labels = used_labels        
         self.bids2xpath = i2xpath
     
@@ -172,7 +174,11 @@ class HtmlParser():
                 return False
             return True
         
-        def is_visible(bid: str) -> bool:
+        def is_visible(node: html.HtmlElement, bid: str) -> bool:
+            if self.dataset == 'mind2web':
+                bound = node.attrib.get('bounding_box_rect', None)
+                self.rect[bid] = rect2tuple(bound)
+
             if not self.use_position:
                 return True
             
@@ -199,7 +205,7 @@ class HtmlParser():
             label = node.attrib.get(self.label_attr, '')
             
             # element which is keeped equivalent to visible
-            visible = is_visible(bid)
+            visible = is_visible(node, bid)
             in_keep_list = bid in keep
             in_obs_list = (bid in obs or len(label) > 0) and visible
             keep_element = in_keep_list or in_obs_list or visible or par_keep
@@ -399,3 +405,16 @@ class HtmlParser():
         new_tree = self.prune(new_tree, nodes_to_keep)
         dom, _ = self.parse(new_tree, self.keep, [], False)
         return dom
+    
+    def get_rect_data(self, bids: list[str]) -> list[dict[str]]:
+        res = []
+        for bid in bids:
+            label = self.bids2label.get(bid, '')
+            rect = self.rect.get(bid, None)
+            res.append({
+                'bid': bid,
+                'label': label,
+                'rect': rect
+            })
+        return res
+        
